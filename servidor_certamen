@@ -4,34 +4,22 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from collections import deque
 
-# --- CONFIGURACIÓN ---
 HOST = '10.42.0.1'  # Escucha en todas las interfaces
 TCP_PORT = 5000   # Puerto definido para TCP 
 UDP_PORT = 5001   # Puerto definido para UDP 
 SWITCH_LIMIT = 50 # Cantidad de mensajes TCP antes de pedir el cambio a UDP [cite: 5]
 
-# --- DATOS COMPARTIDOS PARA EL GRÁFICO ---
-# Usamos deque para guardar los últimos 100 datos y que el gráfico "camine"
 data_values = deque([0]*100, maxlen=100)
 lock = threading.Lock()
 
-# Variable global para controlar el switch
 message_count = 0
 switch_sent = False
 
 def procesar_datos(data_str):
-    """
-    Procesa los datos según el requisito del certamen:
-    - Si es número: retorna el valor numérico.
-    - Si son letras/caracteres: retorna el promedio ASCII del mensaje para poder graficarlo.
-    """
     try:
-        # Intentar convertir directamente a número
         val = float(data_str)
         return val
     except ValueError:
-        # Si falla, es texto. Convertimos caracteres a ASCII.
-        # Calculamos el promedio de los valores ASCII del mensaje para tener un punto en el gráfico.
         ascii_vals = [ord(c) for c in data_str]
         avg_ascii = sum(ascii_vals) / len(ascii_vals) if ascii_vals else 0
         return avg_ascii
@@ -57,24 +45,18 @@ def tcp_server():
                     decoded_data = data.decode('utf-8', errors='ignore')
                     length = len(data)
                     
-                    # Log en consola como pide el requisito [cite: 11]
                     print(f"[TCP] De: {addr} | Largo: {length} bytes | Msg: {decoded_data[:20]}...")
                     
-                    # Procesar para gráfico
                     valor_grafico = procesar_datos(decoded_data)
                     with lock:
                         data_values.append(valor_grafico)
                     
                     message_count += 1
                     
-                    # Lógica para enviar el cambio de protocolo 
                     if message_count >= SWITCH_LIMIT and not switch_sent:
                         print("--- ENVIANDO ORDEN DE CAMBIO A UDP ---")
                         conn.sendall(b"SWITCH_TO_UDP")
                         switch_sent = True
-                        # Opcional: cerrar conexión TCP aquí si se desea forzar, 
-                        # pero el PDF dice que el ESP32 debe dejar de enviar.
-                        
                 except Exception as e:
                     print(f"Error TCP: {e}")
                     break
@@ -90,10 +72,8 @@ def udp_server():
                 decoded_data = data.decode('utf-8', errors='ignore')
                 length = len(data)
                 
-                # Log en consola [cite: 11]
                 print(f"[UDP] De: {addr} | Largo: {length} bytes | Msg: {decoded_data[:20]}...")
                 
-                # Procesar para gráfico 
                 valor_grafico = procesar_datos(decoded_data)
                 with lock:
                     data_values.append(valor_grafico)
@@ -101,7 +81,6 @@ def udp_server():
             except Exception as e:
                 print(f"Error UDP: {e}")
 
-# --- VISUALIZACIÓN (Matplotlib) ---
 def animate(i):
     with lock:
         data_list = list(data_values)
@@ -114,18 +93,15 @@ def animate(i):
     ax.grid(True)
 
 if __name__ == "__main__":
-    # Crear hilos para los servidores (para que no bloqueen el gráfico)
     thread_tcp = threading.Thread(target=tcp_server, daemon=True)
     thread_udp = threading.Thread(target=udp_server, daemon=True)
     
     thread_tcp.start()
     thread_udp.start()
     
-    # Configurar gráfico
     fig = plt.figure()
     ax = fig.add_subplot(1, 1, 1)
     
-    # Actualizar gráfico cada 200ms
     ani = animation.FuncAnimation(fig, animate, interval=200)
     
     print("--- Sistema Iniciado. Esperando al ESP32... ---")
